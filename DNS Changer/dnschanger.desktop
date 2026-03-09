@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=2.0
+Type=Application
+Name=DNS Changer
+Comment=Manage DNS settings with a graphical interface
+Exec=pkexec python3 /usr/local/share/dnschanger/gui.py
+Icon=network-workgroup
+Terminal=false
+Categories=System;Settings;Network;
+Keywords=dns;network;settings;

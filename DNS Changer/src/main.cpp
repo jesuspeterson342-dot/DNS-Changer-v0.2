@@ -134,10 +134,7 @@ NetworkManager checkNetworkManager() {
     return NetworkManager::UNKNOWN;
 }
 
-// ============================================================================
 // Backup functions for each network manager
-// ============================================================================
-
 bool backupNetworkManager(std::ofstream& backup_file) {
     std::string output;
     if (!executeCommandWithOutput("nmcli -t -f IP4.DNS dev show $(nmcli -t -f DEVICE dev status | head -n1) 2>/dev/null", output)) {
@@ -245,9 +242,7 @@ bool saveCurrentDns(const std::string& filename, NetworkManager manager) {
     return true;
 }
 
-// ============================================================================
 // DNS setting functions for each network manager
-// ============================================================================
 
 bool setDnsNetworkManager(const std::string& dns) {
     std::string command = "nmcli dev modify $(nmcli -t -f DEVICE dev status | head -n1) ipv4.dns " + dns;
@@ -444,9 +439,7 @@ bool setDns(const std::string& dns, NetworkManager manager) {
     return true;
 }
 
-// ============================================================================
 // DNS restore functions for each network manager
-// ============================================================================
 
 bool restoreDnsNetworkManager(std::ifstream& backup) {
     std::string line;
@@ -602,10 +595,154 @@ bool restoreDns(const std::string& backup_file_path, NetworkManager manager) {
     return true;
 }
 
-// ============================================================================
-// Main function
-// ============================================================================
+// DNS status functions for each network manager
 
+bool showStatusNetworkManager() {
+    std::string output;
+    if (!executeCommandWithOutput("nmcli -t -f IP4.DNS dev show 2>/dev/null", output)) {
+        std::cerr << "Error: Cannot get NetworkManager DNS settings" << std::endl;
+        return false;
+    }
+
+    if (output.empty()) {
+        std::cout << "No DNS servers configured in NetworkManager" << std::endl;
+        return true;
+    }
+
+    std::cout << "Current DNS servers (NetworkManager):" << std::endl;
+    std::istringstream iss(output);
+    std::string line;
+    int count = 1;
+    while (std::getline(iss, line)) {
+        if (line.find("IP4.DNS") == 0) {
+            size_t colon_pos = line.find(':');
+            if (colon_pos != std::string::npos) {
+                std::string ip = line.substr(colon_pos + 1);
+                ip.erase(0, ip.find_first_not_of(" \t\r\n"));
+                ip.erase(ip.find_last_not_of(" \t\r\n") + 1);
+                std::cout << "  " << count++ << ". " << ip << std::endl;
+            }
+        }
+    }
+    return true;
+}
+
+bool showStatusSystemdResolved() {
+    std::string output;
+    if (!executeCommandWithOutput("resolvectl status 2>/dev/null || systemd-resolve --status 2>/dev/null", output)) {
+        // Fallback: read from resolved.conf
+        std::ifstream conf("/etc/systemd/resolved.conf");
+        if (!conf) {
+            std::cerr << "Error: Cannot read systemd-resolved configuration" << std::endl;
+            return false;
+        }
+
+        std::cout << "Current DNS configuration (systemd-resolved):" << std::endl;
+        std::string line;
+        bool found = false;
+        while (std::getline(conf, line)) {
+            if (line.find("DNS=") == 0) {
+                std::cout << "  " << line << std::endl;
+                found = true;
+            }
+        }
+        if (!found) {
+            std::cout << "  No DNS servers configured" << std::endl;
+        }
+        return true;
+    }
+
+    std::cout << "Current DNS status (systemd-resolved):" << std::endl;
+    std::cout << output << std::endl;
+    return true;
+}
+
+bool showStatusResolvconf() {
+    std::ifstream resolv("/etc/resolv.conf");
+    if (!resolv) {
+        std::cerr << "Error: Cannot open /etc/resolv.conf for reading" << std::endl;
+        return false;
+    }
+
+    std::cout << "Current DNS servers (/etc/resolv.conf):" << std::endl;
+    std::string line;
+    int count = 1;
+    bool found = false;
+    while (std::getline(resolv, line)) {
+        if (line.find("nameserver") == 0) {
+            std::string ip = line.substr(10);
+            ip.erase(0, ip.find_first_not_of(" \t\r\n"));
+            ip.erase(ip.find_last_not_of(" \t\r\n") + 1);
+            std::cout << "  " << count++ << ". " << ip << std::endl;
+            found = true;
+        }
+    }
+
+    if (!found) {
+        std::cout << "  No nameservers found" << std::endl;
+    }
+
+    return true;
+}
+
+bool showStatusOpenresolv() {
+    std::ifstream conf("/etc/resolvconf.conf");
+    if (!conf) {
+        std::cerr << "Error: Cannot open /etc/resolvconf.conf for reading" << std::endl;
+        return false;
+    }
+
+    std::cout << "Current DNS configuration (openresolv):" << std::endl;
+    std::string line;
+    bool found = false;
+    while (std::getline(conf, line)) {
+        if (line.find("name_servers") == 0) {
+            std::cout << "  " << line << std::endl;
+            found = true;
+        }
+    }
+
+    if (!found) {
+        std::cout << "  No DNS servers configured" << std::endl;
+    }
+
+    // Also show current resolv.conf
+    std::cout << "\nCurrent /etc/resolv.conf:" << std::endl;
+    return showStatusResolvconf();
+}
+
+// Show current DNS status
+bool showStatus(NetworkManager manager) {
+    bool success = false;
+
+    switch (manager) {
+        case NetworkManager::NETWORK_MANAGER:
+            success = showStatusNetworkManager();
+            break;
+
+        case NetworkManager::SYSTEMD_RESOLVED:
+            success = showStatusSystemdResolved();
+            break;
+
+        case NetworkManager::OPENRESOLV:
+            success = showStatusOpenresolv();
+            break;
+
+        case NetworkManager::RESOLVCONF:
+        case NetworkManager::UNKNOWN:
+            success = showStatusResolvconf();
+            break;
+    }
+
+    if (!success) {
+        std::cerr << "Error: Failed to get DNS status for " << networkManagerToString(manager) << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// Main function
 int main(int argc, char* argv[]) {
     // Check root privileges
     if (!isRoot()) {
@@ -620,10 +757,12 @@ int main(int argc, char* argv[]) {
         std::cout << "\nUsage:\n";
         std::cout << "  " << argv[0] << " set <dns_ip>    - Set DNS server and backup current settings\n";
         std::cout << "  " << argv[0] << " restore         - Restore DNS settings from backup\n";
+        std::cout << "  " << argv[0] << " status          - Show current DNS configuration\n";
         std::cout << "\nExamples:\n";
         std::cout << "  " << argv[0] << " set 8.8.8.8\n";
         std::cout << "  " << argv[0] << " set 1.1.1.1\n";
         std::cout << "  " << argv[0] << " restore\n";
+        std::cout << "  " << argv[0] << " status\n";
         return 1;
     }
 
@@ -685,10 +824,21 @@ int main(int argc, char* argv[]) {
 
         std::cout << "\n✓ DNS settings restored successfully" << std::endl;
     }
+    // Handle 'status' command
+    else if (command == "status") {
+        std::cout << "\n=== Current DNS Configuration ===" << std::endl;
+
+        if (!showStatus(manager)) {
+            std::cerr << "\n✗ Failed to get DNS status" << std::endl;
+            return 1;
+        }
+
+        std::cout << std::endl;
+    }
     // Invalid command
     else {
         std::cerr << "Error: Invalid command '" << command << "'" << std::endl;
-        std::cerr << "Valid commands: set, restore" << std::endl;
+        std::cerr << "Valid commands: set, restore, status" << std::endl;
         std::cerr << "Run '" << argv[0] << "' without arguments for usage information" << std::endl;
         return 1;
     }
