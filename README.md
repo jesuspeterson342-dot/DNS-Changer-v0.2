@@ -1,17 +1,24 @@
 # DNS Changer
 
-A powerful DNS management utility for Linux systems with both command-line interface (CLI) and graphical user interface (GUI).
+A powerful and intelligent DNS management utility for Linux systems with both command-line interface (CLI) and graphical user interface (GUI). Automatically detects your system's network manager and applies DNS changes using the appropriate method.
 
 ## Features
 
-- **Change DNS**: Set a custom DNS server address
-- **Restore DNS**: Restore the previous DNS settings from a backup
-- **Check Status**: View current DNS configuration
-- **Validation**: IP address validation to ensure correct DNS server addresses
-- **Backup**: Automatic backup of current DNS settings before changes
-- **Multi-Manager Support**: Works with NetworkManager, systemd-resolved, resolvconf, and openresolv
-- **GUI Application**: User-friendly graphical interface built with CustomTkinter
-- **Quick DNS Presets**: One-click access to popular DNS providers (Cloudflare, Google, Quad9)
+- **🔄 Change DNS**: Set a custom DNS server address with automatic validation
+- **♻️ Restore DNS**: Restore the previous DNS settings from automatic backups
+- **📊 Check Status**: View current DNS configuration in a clear format
+- **✅ IP Validation**: Robust IPv4 address validation to ensure correct DNS server addresses
+- **💾 Automatic Backup**: Creates backups before any changes to prevent configuration loss
+- **🔧 Multi-Manager Support**: Intelligent detection and support for:
+  - NetworkManager (nmcli) - Modern Linux distributions
+  - systemd-resolved - systemd-based systems
+  - resolvconf - Traditional Debian/Ubuntu systems
+  - openresolv - Alternative resolver management
+  - Fallback mode - Direct `/etc/resolv.conf` modification
+- **🎨 GUI Application**: Modern, user-friendly graphical interface built with CustomTkinter
+- **⚡ Quick DNS Presets**: One-click access to popular DNS providers (Cloudflare, Google, Quad9)
+- **🛡️ Safety First**: Automatic rollback on failure to prevent DNS breakage
+- **🖥️ Desktop Integration**: Application menu launcher with desktop entry file
 
 ## Requirements
 
@@ -34,20 +41,34 @@ Run the installation script as root:
 sudo ./install.sh
 ```
 
-This will compile the program and install it to `/usr/local/bin/dnschanger`.
+This will:
+- Compile the C++ program with optimizations
+- Install the CLI binary to `/usr/local/bin/dnschanger`
+- Install the GUI to `/usr/local/share/dnschanger/`
+- Create a desktop entry for application menu integration
+
+### Using Makefile
+
+Alternatively, use the provided Makefile:
+
+```bash
+make              # Compile the program
+sudo make install # Install CLI, GUI, and desktop entry
+sudo make uninstall # Remove all installed files
+```
 
 ### Manual Compilation
 
 Compile directly with g++:
 
 ```bash
-g++ -std=c++17 -O2 src/main.cpp -o dnschanger
+g++ -std=c++17 -O2 -Wall src/main.cpp -o dnschanger
 sudo cp dnschanger /usr/local/bin/
 ```
 
 ### GUI Setup
 
-Install Python dependencies:
+Install Python dependencies (required for GUI):
 
 ```bash
 pip3 install -r gui/requirements.txt
@@ -57,6 +78,14 @@ Or install manually:
 
 ```bash
 pip3 install customtkinter
+```
+
+**Recommended**: Use a virtual environment:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install customtkinter
 ```
 
 ## Usage
@@ -73,18 +102,36 @@ sudo dnschanger status          # Check current DNS
 
 ### Graphical User Interface (GUI)
 
-Launch the GUI application:
+**Option 1**: Use the convenient launcher script (recommended):
+
+```bash
+./run_gui.sh
+```
+
+This script automatically:
+- Checks for Python and dependencies
+- Grants X11 access to root
+- Launches the GUI with proper environment
+- Cleans up X11 permissions after exit
+
+**Option 2**: Launch directly:
 
 ```bash
 sudo python3 gui/gui.py
 ```
 
+**Option 3**: Launch from application menu (after installation):
+
+Search for "DNS Changer" in your application menu.
+
 The GUI provides:
-- **Quick DNS buttons** for popular providers (Cloudflare, Google, Quad9)
-- **Custom DNS input** for any DNS server
+- **Quick DNS buttons** for popular providers (Cloudflare 1.1.1.1, Google 8.8.8.8, Quad9 9.9.9.9)
+- **Custom DNS input** with real-time IP validation
 - **Restore functionality** to revert to previous settings
 - **Status checking** to view current DNS configuration
 - **Real-time output** showing command execution and results
+- **Modern dark theme** using CustomTkinter
+- **Automatic executable detection** (finds dnschanger in multiple locations)
 
 ### Commands
 
@@ -140,31 +187,53 @@ sudo dnschanger restore
 
 ### Network Manager Detection
 
-The program automatically detects which network management system is running on your Linux distribution:
+The program uses intelligent detection to identify which network management system is running on your Linux distribution:
 
-1. **NetworkManager** (nmcli) - Common on Ubuntu, Fedora, and many modern distributions
-2. **systemd-resolved** - Used by systemd-based distributions
-3. **resolvconf** - Traditional Debian/Ubuntu systems
-4. **openresolv** - Alternative resolver management
+1. **NetworkManager** (nmcli) - Detected by checking:
+   - `systemctl is-active NetworkManager`
+   - Presence of `/run/NetworkManager/NetworkManager.pid`
+
+2. **systemd-resolved** - Detected by checking:
+   - `systemctl is-active systemd-resolved`
+   - Presence of `/run/systemd/resolve/stub-resolv.conf` or `/run/systemd/resolve/resolv.conf`
+
+3. **openresolv** - Detected by checking:
+   - Presence of `/etc/resolvconf.conf`
+   - Configuration contains `name_servers` directive
+
+4. **resolvconf** (Debian/Ubuntu) - Detected by checking:
+   - Presence of `/run/resolvconf/resolv.conf`
+
 5. **Fallback** - Direct `/etc/resolv.conf` modification if no manager is detected
 
-### Setting DNS
-1. Validates that the user has root privileges
-2. Detects the active network manager
-3. Validates the IP address format (checks for valid IPv4)
-4. Backs up the current DNS configuration to `/etc/resolv.conf.backup`
-5. Applies the new DNS settings using the appropriate method for the detected network manager
-6. If setting fails, automatically restores the previous configuration
+### Setting DNS (set command)
+1. ✅ Validates that the user has root privileges
+2. 🔍 Detects the active network manager
+3. ✅ Validates the IP address format (IPv4: 4 octets, each 0-255)
+4. 💾 Backs up the current DNS configuration to `/etc/resolv.conf.backup`
+5. 🔧 Applies the new DNS settings using the appropriate method:
+   - **NetworkManager**: Uses `nmcli dev modify` and `nmcli con reload`
+   - **systemd-resolved**: Modifies `/etc/systemd/resolved.conf` and restarts service
+   - **resolvconf**: Writes to `/etc/resolvconf/resolv.conf.d/head` and runs `resolvconf -u`
+   - **openresolv**: Updates `/etc/resolvconf.conf` and runs `resolvconf -u`
+   - **Fallback**: Directly writes to `/etc/resolv.conf`
+6. 🛡️ If setting fails, automatically restores the previous configuration
 
-### Restoring DNS
-1. Validates that the user has root privileges
-2. Detects the active network manager
-3. Reads the backup file from `/etc/resolv.conf.backup`
-4. Restores the original DNS settings using the appropriate method
+### Restoring DNS (restore command)
+1. ✅ Validates that the user has root privileges
+2. 🔍 Detects the active network manager
+3. 📂 Reads the backup file from `/etc/resolv.conf.backup`
+4. ✅ Verifies backup file exists and has content
+5. ♻️ Restores the original DNS settings using the appropriate method for the detected manager
 
-### Checking Status
-1. Validates that the user has root privileges
-2. Displays current DNS configuration based on the detected network manager
+### Checking Status (status command)
+1. ✅ Validates that the user has root privileges
+2. 🔍 Detects the active network manager
+3. 📊 Displays current DNS configuration:
+   - **NetworkManager**: Shows DNS from `nmcli -t -f IP4.DNS dev show`
+   - **systemd-resolved**: Shows output from `resolvectl status` or reads `/etc/systemd/resolved.conf`
+   - **openresolv**: Shows `name_servers` from `/etc/resolvconf.conf` and current `/etc/resolv.conf`
+   - **resolvconf/Fallback**: Parses and displays nameservers from `/etc/resolv.conf`
 
 ## IP Validation
 
@@ -180,39 +249,75 @@ Examples of invalid addresses: `256.1.1.1`, `8.8.8`, `invalid.address`
 ```
 DNS Changer/
 ├── src/
-│   └── main.cpp              # Main C++ source code
+│   └── main.cpp              # Main C++ source code (847 lines)
 ├── gui/
-│   ├── gui.py                # Python GUI application
+│   ├── gui.py                # Python GUI application (317 lines)
 │   └── requirements.txt      # Python dependencies
-├── build/                    # Compiled binaries (created during build)
+├── venv/                     # Python virtual environment (optional)
+├── bulid/                    # Compiled binaries directory
+│   └── my_program.bin        # Compiled executable
 ├── install.sh                # Installation script
-├── .gitignore                # Git ignore rules
+├── run_gui.sh                # GUI launcher script with X11 setup
+├── Makefile                  # Build and installation automation
+├── dnschanger.desktop        # Desktop entry file for app menu
 ├── README.md                 # English documentation
 ├── README.ru.md              # Russian documentation
-└── LICENSE                   # MIT License
+└── LICENSE                   # License file
 
 ```
 
 ### Source Code (`/src`)
-- `main.cpp` - Main program implementation
-  - Network manager detection (NetworkManager, systemd-resolved, resolvconf, openresolv)
-  - IP validation functions
-  - DNS backup and restore functionality for each network manager
-  - Root privilege checking
-  - Command-line argument parsing
+- **`main.cpp`** - Main program implementation (C++17)
+  - **Enum `NetworkManager`**: Defines supported network managers
+  - **Detection functions**: `checkNetworkManager()`, `isServiceActive()`
+  - **Validation**: `isValidIP()` - IPv4 address validation with regex
+  - **Backup functions**: Manager-specific backup implementations
+    - `backupNetworkManager()`, `backupSystemdResolved()`, `backupOpenresolv()`, `backupResolvconf()`
+  - **DNS setting functions**: Manager-specific DNS configuration
+    - `setDnsNetworkManager()`, `setDnsSystemdResolved()`, `setDnsResolvconf()`, `setDnsOpenresolv()`, `setDnsFallback()`
+  - **Restore functions**: Manager-specific restoration
+    - `restoreDnsNetworkManager()`, `restoreDnsSystemdResolved()`, `restoreDnsOpenresolv()`, `restoreDnsResolvconf()`
+  - **Status functions**: Manager-specific status display
+    - `showStatusNetworkManager()`, `showStatusSystemdResolved()`, `showStatusResolvconf()`, `showStatusOpenresolv()`
+  - **Utility functions**: `isRoot()`, `executeCommand()`, `executeCommandWithOutput()`
+  - **Command-line parsing**: Handles `set`, `restore`, and `status` commands
 
 ### GUI (`/gui`)
-- `gui.py` - CustomTkinter-based graphical interface
-  - Quick DNS preset buttons
-  - Custom DNS input with validation
-  - Real-time command output display
-  - Threaded command execution to prevent UI freezing
-- `requirements.txt` - Python package dependencies
+- **`gui.py`** - CustomTkinter-based graphical interface
+  - **Class `DNSChangerApp`**: Main application window (400x500px, dark theme)
+  - **Executable detection**: `_find_dnschanger()` - searches multiple locations
+  - **Quick DNS section**: Preset buttons for Cloudflare, Google, Quad9
+  - **Custom DNS section**: Input field with validation, apply/restore/status buttons
+  - **Output section**: Real-time command output with timestamps
+  - **Threading**: Non-blocking command execution to prevent UI freezing
+  - **Root checking**: Validates root privileges on startup
+  - **X11 handling**: Checks for DISPLAY environment variable
+- **`requirements.txt`** - Python package dependencies (customtkinter>=5.2.0)
 
-### System Files
+### Scripts
+- **`install.sh`** - Automated installation script
+  - Checks for root privileges and g++ compiler
+  - Compiles with C++17 and O2 optimization
+  - Installs CLI, GUI, and desktop entry
+- **`run_gui.sh`** - GUI launcher with proper setup
+  - Manages X11 permissions for root
+  - Handles virtual environment detection
+  - Preserves environment variables
+- **`Makefile`** - Build automation
+  - Targets: `all`, `clean`, `install`, `uninstall`
+  - Installs to `/usr/local/bin/` and `/usr/local/share/dnschanger/`
+
+### Desktop Integration
+- **`dnschanger.desktop`** - FreeDesktop entry file
+  - Uses `pkexec` for privilege escalation
+  - Categories: System, Settings, Network
+  - Installed to `/usr/share/applications/`
+
+### System Files (Created at Runtime)
 
 - `/etc/resolv.conf.backup` - Backup of DNS settings created when running `set` command
-- `/usr/local/bin/dnschanger` - Installed binary location (after installation)
+- `/usr/local/bin/dnschanger` - Installed CLI binary location (after installation)
+- `/usr/local/share/dnschanger/` - Installed GUI location (after installation)
 
 ## Safety
 
@@ -231,30 +336,83 @@ DNS Changer/
 
 ## Troubleshooting
 
+### CLI Issues
+
 **Error: "This program must be run as root!"**
-- Solution: Use `sudo` when running the program
-- Example: `sudo dnschanger set 8.8.8.8`
-
-**Error: "The 'dnschanger' command was not found in PATH" (GUI)**
-- Solution: Make sure the program is installed using `sudo ./install.sh`
-- Or ensure the compiled binary is in your PATH
-
-**Error: "Cannot open /etc/resolv.conf for reading"**
-- Solution: Ensure the file exists and the program has read permissions
+- **Cause**: The program requires root privileges to modify system DNS settings
+- **Solution**: Use `sudo` when running the program
+- **Example**: `sudo dnschanger set 8.8.8.8`
 
 **Error: "Invalid DNS IP address"**
-- Solution: Check that the IP address is in valid IPv4 format (e.g., `8.8.8.8`)
+- **Cause**: The provided IP address doesn't match IPv4 format
+- **Solution**: Check that the IP address is valid (e.g., `8.8.8.8`)
+- **Valid format**: 4 octets separated by dots, each octet 0-255
+- **Invalid examples**: `256.1.1.1`, `8.8.8`, `invalid.address`
 
 **Error: "Backup file not found"**
-- Solution: The backup was never created. Run `set` command first to create a backup.
+- **Cause**: No backup exists at `/etc/resolv.conf.backup`
+- **Solution**: Run `set` command first to create a backup before restoring
 
-**GUI doesn't start**
-- Solution: Install Python dependencies with `pip3 install -r gui/requirements.txt`
-- Make sure you're running with sudo: `sudo python3 gui/gui.py`
+**Error: "Cannot open /etc/resolv.conf for reading"**
+- **Cause**: File doesn't exist or lacks read permissions
+- **Solution**: Ensure the file exists and the program has read permissions
+
+**Error: "Failed to set DNS via nmcli"**
+- **Cause**: NetworkManager command failed
+- **Solution**: Check that NetworkManager is running: `systemctl status NetworkManager`
+
+### GUI Issues
+
+**Error: "dnschanger executable not found!"**
+- **Cause**: The CLI program is not installed or not in PATH
+- **Solution**:
+  - Install using `sudo ./install.sh`
+  - Or compile manually: `g++ -std=c++17 -O2 src/main.cpp -o dnschanger`
+  - Ensure it's in `/usr/local/bin/` or another PATH location
+
+**Error: "customtkinter module not found!"**
+- **Cause**: Python dependency not installed
+- **Solution**: Install with `pip3 install customtkinter` or `pip3 install -r gui/requirements.txt`
+
+**Error: "Root privileges required!"**
+- **Cause**: GUI not running with sudo
+- **Solution**: Run with `sudo python3 gui/gui.py` or use `./run_gui.sh`
+
+**Error: "No DISPLAY environment variable!"**
+- **Cause**: X11 display not available to root
+- **Solution**:
+  - Use `sudo -E python3 gui/gui.py` to preserve environment
+  - Or grant X11 access: `xhost +si:localuser:root`
+  - Or use the launcher script: `./run_gui.sh`
+
+**GUI window doesn't appear**
+- **Cause**: X11 permission issues
+- **Solution**:
+  ```bash
+  xhost +si:localuser:root
+  sudo -E python3 gui/gui.py
+  ```
+
+### General Issues
 
 **DNS changes don't persist after reboot**
-- Some network managers may override manual DNS settings
-- Consider using your network manager's GUI or configuration files for persistent changes
+- **Cause**: Network manager may override manual settings
+- **Solution**:
+  - For persistent changes, configure your network manager directly
+  - NetworkManager: Use `nmcli` or network settings GUI
+  - systemd-resolved: Edit `/etc/systemd/resolved.conf` permanently
+
+**Changes don't take effect immediately**
+- **Cause**: DNS cache or application-level caching
+- **Solution**:
+  - Flush DNS cache: `sudo systemd-resolve --flush-caches` (if using systemd-resolved)
+  - Restart network: `sudo systemctl restart NetworkManager`
+  - Test with: `nslookup google.com` or `dig google.com`
+
+**"Warning: Unknown network manager"**
+- **Cause**: No recognized network manager detected
+- **Effect**: Program will use fallback method (direct `/etc/resolv.conf` modification)
+- **Note**: This is not an error, just informational
 
 ## Contributing
 
@@ -267,26 +425,60 @@ This is an open-source project that welcomes contributions! We are looking for h
 - **Documentation**: Improvements to documentation and examples
 - **Bug Reports**: Reporting and fixing issues
 
+## Technical Details
+
+### Compilation
+- **Language**: C++17
+- **Compiler**: g++ with `-std=c++17 -O2 -Wall` flags
+- **Dependencies**: Standard C++ library only (no external dependencies)
+- **Binary size**: ~50KB (optimized)
+
+### Python GUI
+- **Python version**: 3.7+
+- **Framework**: CustomTkinter 5.2.0+
+- **Theme**: Dark mode with dark-blue color scheme
+- **Window size**: 400x500px (fixed, non-resizable)
+
+### Security Considerations
+- ✅ Requires root privileges (checked via `geteuid()`)
+- ✅ IP validation prevents injection attacks
+- ✅ Automatic backups prevent configuration loss
+- ✅ Rollback on failure prevents DNS breakage
+- ⚠️ Backups stored in `/etc/resolv.conf.backup` - keep secure
+- ⚠️ Always verify DNS server addresses before applying
+- ⚠️ Use trusted DNS providers to avoid DNS hijacking
+
 ## Future Development
 
 Planned features and improvements:
 
 - [x] NetworkManager integration for modern Linux distributions
 - [x] systemd-resolved support
+- [x] resolvconf and openresolv support
 - [x] GUI application for easier DNS management
+- [x] Desktop entry file for launching GUI from application menu
+- [x] Automatic network manager detection
+- [x] Automatic backup and restore functionality
+- [x] GUI launcher script with X11 setup
 - [ ] macOS support (using `scutil` and `networksetup`)
 - [ ] Windows support (using WMI and Registry modifications)
-- [ ] DNS server list management (multiple DNS servers)
+- [ ] Multiple DNS servers support (primary and secondary)
 - [ ] Configuration file support for managing multiple DNS profiles
 - [ ] IPv6 DNS support
 - [ ] DNS-over-HTTPS (DoH) and DNS-over-TLS (DoT) support
 - [ ] Unit tests and integration tests
 - [ ] Package managers support (apt, yum, pacman, brew, etc.)
-- [ ] Desktop entry file for launching GUI from application menu
+- [ ] Systemd service for persistent DNS management
+- [ ] DNS performance testing and benchmarking
+- [ ] Import/export DNS profiles
 
 ## License
 
-MIT License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2026 Davud
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software.
 
 ## Screenshots
 
